@@ -13,10 +13,35 @@ from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import ValidationError, PermissionDenied
 
 from fcm_django.models import FCMDevice
+from firebase_admin.messaging import MulticastMessage, Notification, send_multicast
 
 
-def send_notification_to_members(task, task_message):
-    pass
+def send_notification_to_members(task, message_text):
+    members = task.members.all()
+    registration_ids = []
+
+    for member in members:
+        user = member.user
+        try:
+            # Get the FCM device token for the user
+            fcm_device = FCMDevice.objects.get(user=user.id)
+            registration_token = fcm_device.registration_id
+            registration_ids.append(registration_token)
+        except FCMDevice.DoesNotExist:
+            continue
+
+    if registration_ids:
+        notification = Notification(title="Task Notification", body=message_text)
+
+        message = MulticastMessage(
+            notification=notification,
+            tokens=registration_ids,
+        )
+
+        response = send_multicast(message)
+        print(
+            f"Successfully sent message: {response.success_count} messages sent, {response.failure_count} failed"
+        )
 
 
 class ViewLogs(generics.ListAPIView):
