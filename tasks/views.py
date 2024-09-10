@@ -4,15 +4,19 @@ from django.contrib.auth.models import User
 
 from .serializers import ActivityLogSerializer, TaskSerializer
 from .models import ActivityLog, Task, TaskMember
-from .permissions import isOwner
+from .permissions import IsOwner
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, generics, status
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 
 from fcm_django.models import FCMDevice
+
+
+def send_notification_to_members(task, task_message):
+    pass
 
 
 class ViewLogs(generics.ListAPIView):
@@ -106,4 +110,38 @@ class ListCreateTask(generics.ListCreateAPIView):
 class RetrieveUpdateDeleteTask(generics.RetrieveUpdateDestroyAPIView):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
-    permission_classes = [permissions.IsAuthenticated, isOwner]
+    permission_classes = [permissions.IsAuthenticated, IsOwner]
+
+    def perform_update(self, serializer):
+        task = self.get_object()
+        user = self.request.user
+        data = self.request.data
+
+        if task.owner == user:
+            serializer.save()
+
+            if "status" in data:
+                TaskMember.objects.filter(task=task).update(status=data["status"])
+
+            members = self.request.data.get("members", [])
+            if members:
+                for username in members:
+                    try:
+                        user = User.objects.get(username=username)
+                        if not TaskMember.objects.filter(task=task, user=user).exists():
+                            TaskMember.objects.create(task=task, user=user)
+                    except User.DoesNotExist:
+                        raise ValidationError(f"user {username} doesn't exist")
+
+            send_notification_to_members(task, "Task updated by owner.")
+        else:
+            task_member = TaskMember.objects.filter(task=task, user=user).first()
+            task_member.status = data.get("status", task_member.status)
+            task_member.save()
+            send_notification_to_members(
+                task, f"{user.username} updated their task status."
+            )
+
+    def perform_destroy(self, instance):
+        send_notification_to_members(instance, "Task has been deleted by the creator.")
+        super().perform_destroy(instance)
