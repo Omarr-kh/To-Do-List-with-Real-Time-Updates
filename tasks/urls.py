@@ -12,4 +12,9 @@ urlpatterns = [
     path("login/", login_user, name="login"),
     path("view-logs/", ViewLogs.as_view(), name="view-logs"),
     path("tasks/", ListCreateTask.as_view(), name="list-create-tasks"),
+    path(
+        "tasks/<int:pk>/",
+        RetrieveUpdateDeleteTask.as_view(),
+        name="retrieve-update-delete-tasks",
+    ),
 ]
