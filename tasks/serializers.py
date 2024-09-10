@@ -31,6 +31,10 @@ class TaskSerializer(serializers.ModelSerializer):
 
         return super().create(validated_data)
 
+    def update(self, instance, validated_data):
+        validated_data.pop("members", [])
+        return super().update(instance, validated_data)
+
 
 class ActivityLogSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
