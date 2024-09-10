@@ -13,7 +13,7 @@ class Task(models.Model):
     description = models.TextField()
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="Pending")
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tasks")
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tasks")
     created_at = models.DateTimeField(auto_now_add=True)
 
 
@@ -23,3 +23,10 @@ class TaskMember(models.Model):
         User, on_delete=models.CASCADE, related_name="task_memberships"
     )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="Pending")
+
+
+class ActivityLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    endpoint = models.CharField(max_length=300)
+    method = models.CharField(max_length=50)
+    timestamp = models.DateTimeField(auto_now_add=True)
