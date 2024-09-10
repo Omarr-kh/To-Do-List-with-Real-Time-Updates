@@ -1,12 +1,21 @@
 from django.shortcuts import render
 from django.contrib.auth.models import User
 
+from .serializers import ActivityLogSerializer
+from .models import ActivityLog, Task, TaskMember
+
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework import permissions, generics, status
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 
 from fcm_django.models import FCMDevice
+
+
+class ViewLogs(generics.ListAPIView):
+    queryset = ActivityLog.objects.all()
+    serializer_class = ActivityLogSerializer
+    permission_classes = [permissions.IsAdminUser]
 
 
 @api_view(["POST"])
