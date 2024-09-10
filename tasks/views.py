@@ -68,8 +68,8 @@ def login_user(request):
 
         if FCMDevice.objects.filter(registration_id=registration_token).exists():
             fcm_device = FCMDevice.objects.get(registration_id=registration_token)
-            fcm_device["registration_id"] = registration_token
-            fcm_device["type"] = device_type
+            fcm_device.registration_id = registration_token
+            fcm_device.type = device_type
             fcm_device.save()
         else:
             fcm_device = FCMDevice.objects.create(
