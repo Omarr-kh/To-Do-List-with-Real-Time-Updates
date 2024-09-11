@@ -10,7 +10,7 @@ from .views import (
 urlpatterns = [
     path("register/", register_user, name="register"),
     path("login/", login_user, name="login"),
-    path("view-logs/", ViewLogs.as_view(), name="view-logs"),
+    path("view-logs/", ViewLogs, name="view-logs"),
     path("tasks/", ListCreateTask.as_view(), name="list-create-tasks"),
     path(
         "tasks/<int:pk>/",

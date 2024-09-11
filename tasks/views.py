@@ -44,10 +44,12 @@ def send_notification_to_members(task, message_text):
         )
 
 
-class ViewLogs(generics.ListAPIView):
-    queryset = ActivityLog.objects.all()
-    serializer_class = ActivityLogSerializer
-    permission_classes = [permissions.IsAdminUser]
+@api_view(["GET"])
+@permission_classes([permissions.IsAdminUser])
+def ViewLogs(request):
+    logs = ActivityLog.objects.all()
+    serializer = ActivityLogSerializer(logs, many=True)
+    return Response(serializer.data)
 
 
 @api_view(["POST"])
