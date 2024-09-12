@@ -15,6 +15,8 @@ from rest_framework.exceptions import ValidationError, PermissionDenied
 from fcm_django.models import FCMDevice
 from firebase_admin.messaging import MulticastMessage, Notification, send_multicast
 
+import traceback
+
 
 def send_notification_to_members(task, message_text):
     members = task.members.all()
@@ -44,10 +46,16 @@ def send_notification_to_members(task, message_text):
         )
 
 
-class ViewLogs(generics.ListAPIView):
-    queryset = ActivityLog.objects.all()
-    serializer_class = ActivityLogSerializer
-    permission_classes = [permissions.IsAdminUser]
+@api_view(["GET"])
+@permission_classes([permissions.IsAdminUser])
+def view_logs(request):
+    try:
+        logs = ActivityLog.objects.all()
+        serializer = ActivityLogSerializer(logs, many=True)
+        return Response(serializer.data)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
 
 
 @api_view(["POST"])
@@ -111,62 +119,157 @@ def login_user(request):
         return Response({"token": {token.key}})
 
 
-class ListCreateTask(generics.ListCreateAPIView):
-    serializer_class = TaskSerializer
-    permission_classes = [permissions.IsAuthenticated]
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def list_tasks(request):
+    try:
+        user = request.user
+        user_tasks = Task.objects.filter(Q(owner=user) | Q(members__user=user))
+        serializer = TaskSerializer(user_tasks, many=True)
 
-    def get_queryset(self):
-        user = self.request.user
-        # Get tasks where the user is either the owner or a member
-        return Task.objects.filter(Q(owner=user) | Q(members__user=user)).distinct()
+        return Response(serializer.data)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
 
-    def perform_create(self, serializer):
-        task = serializer.save()
-        members = self.request.data.get("members", [])
-        if members:
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def create_task(request):
+    try:
+        serializer = TaskSerializer(data=request.data, context={"request": request})
+
+        if serializer.is_valid():
+            task = serializer.save()
+            members = request.data.get("members", [])
             for username in members:
                 try:
                     user = User.objects.get(username=username)
-                    TaskMember.objects.create(task=task, user=user)
+                    TaskMember.objects.create(user=user, task=task)
                 except User.DoesNotExist:
-                    raise ValidationError(f"user {username} doesn't exist")
+                    raise ValidationError(f"{user} doesn't exist!")
+        return Response(serializer.data)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
 
 
-class RetrieveUpdateDeleteTask(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Task.objects.all()
-    serializer_class = TaskSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwner]
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def view_task(request, pk):
+    try:
+        task = Task.objects.get(id=pk)
+        if not (
+            request.user == task.owner
+            or task.members.filter(user=request.user).exists()
+        ):
+            raise PermissionDenied("You do not have permission to view this task.")
 
-    def perform_update(self, serializer):
-        task = self.get_object()
-        user = self.request.user
-        data = self.request.data
+        serializer = TaskSerializer(task, many=False)
+        return Response(serializer.data)
+    except Task.DoesNotExist:
+        return Response({"error": "Task not found"}, status=404)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
+
+
+@api_view(["POST", "PUT"])
+@permission_classes([permissions.IsAuthenticated])
+def update_task(request, pk):
+    try:
+        task = Task.objects.get(id=pk)
+        serializer = TaskSerializer(
+            instance=task, data=request.data, partial=True, context={"request": request}
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        else:
+            return Response(serializer.errors, status=400)
+    except Task.DoesNotExist:
+        return Response({"error": "Task not found"}, status=404)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
+
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError, PermissionDenied
+
+
+@api_view(["POST", "PUT"])
+@permission_classes([permissions.IsAuthenticated])
+def update_task(request, pk):
+    try:
+        task = Task.objects.get(id=pk)
+        user = request.user
+        data = request.data
+        serializer = TaskSerializer(task, data=data, partial=True)
 
         if task.owner == user:
-            serializer.save()
+            if serializer.is_valid():
+                serializer.save()
 
-            if "status" in data:
-                TaskMember.objects.filter(task=task).update(status=data["status"])
+                # Update all members' status if the task status is updated by the owner
+                if "status" in data:
+                    TaskMember.objects.filter(task=task).update(status=data["status"])
 
-            members = self.request.data.get("members", [])
-            if members:
-                for username in members:
-                    try:
-                        user = User.objects.get(username=username)
-                        if not TaskMember.objects.filter(task=task, user=user).exists():
-                            TaskMember.objects.create(task=task, user=user)
-                    except User.DoesNotExist:
-                        raise ValidationError(f"user {username} doesn't exist")
+                members = data.get("members", [])
+                if members:
+                    for username in members:
+                        try:
+                            member_user = User.objects.get(username=username)
+                            if not TaskMember.objects.filter(
+                                task=task, user=member_user
+                            ).exists():
+                                TaskMember.objects.create(task=task, user=member_user)
+                        except User.DoesNotExist:
+                            raise ValidationError(f"user {username} doesn't exist")
 
-            send_notification_to_members(task, "Task updated by owner.")
+                send_notification_to_members(task, "Task updated by owner.")
+                return Response(serializer.data)
+            else:
+                return Response(serializer.errors, status=400)
         else:
-            task_member = TaskMember.objects.filter(task=task, user=user).first()
-            task_member.status = data.get("status", task_member.status)
-            task_member.save()
-            send_notification_to_members(
-                task, f"{user.username} updated their task status."
+            # Members can update their task status
+            task_member = TaskMember.objects.get(task=task, user=user)
+            if task_member:
+                task_member.status = data.get("status", task_member.status)
+                task_member.save()
+                send_notification_to_members(
+                    task, f"{task_member.user} updated their task status."
+                )
+                return Response({"status": "Task status updated for member."})
+            else:
+                raise PermissionDenied(
+                    "You do not have permission to update this task."
+                )
+    except Task.DoesNotExist:
+        return Response({"error": "Task not found"}, status=404)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
+
+
+@api_view(["DELETE"])
+@permission_classes([permissions.IsAuthenticated])
+def delete_task(request, pk):
+    try:
+        task = Task.objects.get(id=pk)
+
+        if request.user != task.owner:
+            raise PermissionDenied(
+                "You don't have permission to delete this task, only the owner can."
             )
 
-    def perform_destroy(self, instance):
-        send_notification_to_members(instance, "Task has been deleted by the creator.")
-        super().perform_destroy(instance)
+        send_notification_to_members(task, "Task has been deleted by the creator.")
+        task.delete()
+        return Response({"message": "Task deleted successfully."})
+    except Task.DoesNotExist:
+        return Response({"error": "Task not found"}, status=404)
+    except:
+        print(traceback.format_exception)
+        return Response(status=status.HTTP_409_CONFLICT)
